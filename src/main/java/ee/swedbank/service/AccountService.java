@@ -22,6 +22,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AccountService {
 
+    private static final BigDecimal MINIMUM_AMOUNT = new BigDecimal("0.01");
+    private static final int CURRENCY_SCALE = 2;
+
     private final AccountRepository accountRepository;
     private final ExchangeRateService exchangeRateService;
     private final ExternalLoggingClient externalLoggingClient;
@@ -130,11 +133,7 @@ public class AccountService {
     public BalanceResponse exchange(Long accountId, BigDecimal amount,
                                     SupportedCurrency fromCurrency, SupportedCurrency toCurrency,
                                     String idempotencyKey, String initiatedBy, String note) {
-        if (fromCurrency == toCurrency) {
-            throw new InvalidRequestException(
-                    "Cannot exchange on account " + accountId
-                            + ": fromCurrency and toCurrency must differ, but both are " + fromCurrency + ".");
-        }
+        validateExchangeRequest(amount, fromCurrency, toCurrency);
         return idempotencyService.executeIdempotent(idempotencyKey, OperationType.EXCHANGE,
                 initiatedBy, note, () -> {
                     Account account = findAccountWithBalances(accountId);
@@ -144,14 +143,42 @@ public class AccountService {
                         throw new InsufficientFundsException(accountId, fromCurrency, source.getAmount(), amount);
                     }
 
-                    source.setAmount(scaled(source.getAmount().subtract(amount)));
-                    BigDecimal converted = exchangeRateService.convert(amount, fromCurrency, toCurrency);
+                    BigDecimal creditedTarget = exchangeRateService.convert(amount, fromCurrency, toCurrency);
+                    if (creditedTarget.compareTo(MINIMUM_AMOUNT) < 0) {
+                        throw new InvalidRequestException(
+                                "Exchange amount is too small to produce a payable target amount");
+                    }
+
+                    source.setAmount(source.getAmount().subtract(amount));
                     AccountBalance target = findOrCreateBalance(account, toCurrency);
-                    target.setAmount(scaled(target.getAmount().add(converted)));
+                    target.setAmount(target.getAmount().add(creditedTarget));
 
                     accountRepository.save(account);
                     return balanceResponseMapper.toResponse(account);
                 });
+    }
+
+    private void validateExchangeRequest(BigDecimal amount,
+                                         SupportedCurrency fromCurrency,
+                                         SupportedCurrency toCurrency) {
+        if (amount == null) {
+            throw new InvalidRequestException("amount is required");
+        }
+        if (fromCurrency == null) {
+            throw new InvalidRequestException("fromCurrency is required");
+        }
+        if (toCurrency == null) {
+            throw new InvalidRequestException("toCurrency is required");
+        }
+        if (amount.compareTo(MINIMUM_AMOUNT) < 0) {
+            throw new InvalidRequestException("amount must be at least 0.01");
+        }
+        if (amount.scale() > CURRENCY_SCALE) {
+            throw new InvalidRequestException("amount must have at most 2 decimal places");
+        }
+        if (fromCurrency == toCurrency) {
+            throw new InvalidRequestException("fromCurrency and toCurrency must differ");
+        }
     }
 
     private Account findAccountWithBalances(Long accountId) {

@@ -213,7 +213,7 @@ class AccountServiceTest {
         thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("20.00"),
                 SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(InsufficientFundsException.class)
-                .hasMessageContaining("1")
+                .hasMessageContaining("Insufficient funds")
                 .hasMessageContaining("EUR")
                 .hasMessageContaining("20")
                 .hasMessageContaining("10");
@@ -230,7 +230,7 @@ class AccountServiceTest {
         thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("10.00"),
                 SupportedCurrency.USD, null, "user", null))
                 .isInstanceOf(UnsupportedCurrencyException.class)
-                .hasMessageContaining("1")
+                .hasMessageContaining("Account does not have a balance for currency")
                 .hasMessageContaining("USD");
         BDDMockito.then(externalLoggingClient).should(never()).logWithdrawal();
     }
@@ -291,10 +291,52 @@ class AccountServiceTest {
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
                 SupportedCurrency.EUR, SupportedCurrency.USD, null, "user", null))
                 .isInstanceOf(InsufficientFundsException.class)
-                .hasMessageContaining("1")
+                .hasMessageContaining("Insufficient funds")
                 .hasMessageContaining("EUR")
                 .hasMessageContaining("50")
                 .hasMessageContaining("10");
+    }
+
+    @Test
+    void exchange_amountScaleTooLarge_throwsInvalidRequestException() {
+        thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("1.001"),
+                SupportedCurrency.EUR, SupportedCurrency.USD, null, "user", null))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("amount must have at most 2 decimal places");
+
+        BDDMockito.then(accountRepository).should(never()).findWithBalancesById(any());
+    }
+
+    @Test
+    void exchange_tinyCreditedTarget_throwsInvalidRequestException() {
+        usePassThroughIdempotency();
+        account.getBalances().add(new AccountBalance(account, SupportedCurrency.EUR, new BigDecimal("10.00")));
+        given(accountRepository.findWithBalancesById(1L)).willReturn(Optional.of(account));
+        given(exchangeRateService.convert(new BigDecimal("0.01"), SupportedCurrency.EUR, SupportedCurrency.GBP))
+                .willReturn(new BigDecimal("0.00"));
+
+        thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("0.01"),
+                SupportedCurrency.EUR, SupportedCurrency.GBP, null, "user", null))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Exchange amount is too small to produce a payable target amount");
+
+        then(account.getBalances().get(0).getAmount()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void exchange_tinyCreditedTargetSekToGbp_throwsInvalidRequestException() {
+        usePassThroughIdempotency();
+        account.getBalances().add(new AccountBalance(account, SupportedCurrency.SEK, new BigDecimal("10.00")));
+        given(accountRepository.findWithBalancesById(1L)).willReturn(Optional.of(account));
+        given(exchangeRateService.convert(new BigDecimal("0.01"), SupportedCurrency.SEK, SupportedCurrency.GBP))
+                .willReturn(new BigDecimal("0.00"));
+
+        thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("0.01"),
+                SupportedCurrency.SEK, SupportedCurrency.GBP, null, "user", null))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Exchange amount is too small to produce a payable target amount");
+
+        then(account.getBalances().get(0).getAmount()).isEqualByComparingTo("10.00");
     }
 
     @Test
@@ -307,7 +349,7 @@ class AccountServiceTest {
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
                 SupportedCurrency.USD, SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(UnsupportedCurrencyException.class)
-                .hasMessageContaining("1")
+                .hasMessageContaining("Account does not have a balance for currency")
                 .hasMessageContaining("USD");
     }
 
@@ -317,8 +359,7 @@ class AccountServiceTest {
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
                 SupportedCurrency.EUR, SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("1")
-                .hasMessageContaining("EUR");
+                .hasMessage("fromCurrency and toCurrency must differ");
     }
 
     @Test

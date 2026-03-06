@@ -9,7 +9,7 @@ public class UnsupportedCurrencyException extends RuntimeException {
     private final SupportedCurrency currency;
 
     public UnsupportedCurrencyException(Long accountId, SupportedCurrency currency) {
-        super("Account " + accountId + " has no balance for currency " + currency + ".");
+        super("Account does not have a balance for currency " + currency);
         this.accountId = accountId;
         this.currency = currency;
     }

@@ -14,8 +14,8 @@ public class InsufficientFundsException extends RuntimeException {
 
     public InsufficientFundsException(Long accountId, SupportedCurrency currency,
                                       BigDecimal available, BigDecimal requested) {
-        super("Insufficient funds on account " + accountId + ": cannot process " + requested
-                + " " + currency + ", available balance is " + available + ".");
+        super("Insufficient funds: available " + available + " " + currency
+                + ", required " + requested + " " + currency);
         this.accountId = accountId;
         this.currency = currency;
         this.available = available;

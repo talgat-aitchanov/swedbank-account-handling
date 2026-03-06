@@ -3,14 +3,19 @@ package ee.swedbank.api;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ee.swedbank.api.dto.*;
 import ee.swedbank.domain.SupportedCurrency;
+import ee.swedbank.service.ExchangeRateService;
 import ee.swedbank.service.ExternalLoggingClient;
 import ee.swedbank.service.ExternalLoggingFailedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
@@ -18,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.BDDAssertions.then;
 import static org.hamcrest.Matchers.containsString;
@@ -41,6 +47,8 @@ class AccountControllerIntegrationTest {
     private ObjectMapper objectMapper;
     @MockBean
     private ExternalLoggingClient externalLoggingClient;
+    @SpyBean
+    private ExchangeRateService exchangeRateService;
     private String userToken;
     private String adminToken;
     /**
@@ -49,6 +57,46 @@ class AccountControllerIntegrationTest {
     private Long accountId;
 
     // ── helpers ────────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> crossCurrencySuccessCases() {
+        return Stream.of(
+                Arguments.of(SupportedCurrency.SEK, SupportedCurrency.GBP,
+                        new BigDecimal("200.00"), new BigDecimal("112.00"),
+                        new BigDecimal("88.00"), new BigDecimal("8.60")),
+                Arguments.of(SupportedCurrency.SEK, SupportedCurrency.USD,
+                        new BigDecimal("200.00"), new BigDecimal("112.00"),
+                        new BigDecimal("88.00"), new BigDecimal("11.00")),
+                Arguments.of(SupportedCurrency.USD, SupportedCurrency.GBP,
+                        new BigDecimal("200.00"), new BigDecimal("11.00"),
+                        new BigDecimal("189.00"), new BigDecimal("8.60")),
+                Arguments.of(SupportedCurrency.USD, SupportedCurrency.SEK,
+                        new BigDecimal("200.00"), new BigDecimal("11.00"),
+                        new BigDecimal("189.00"), new BigDecimal("112.00")),
+                Arguments.of(SupportedCurrency.GBP, SupportedCurrency.SEK,
+                        new BigDecimal("200.00"), new BigDecimal("8.60"),
+                        new BigDecimal("191.40"), new BigDecimal("112.00")),
+                Arguments.of(SupportedCurrency.GBP, SupportedCurrency.USD,
+                        new BigDecimal("200.00"), new BigDecimal("8.60"),
+                        new BigDecimal("191.40"), new BigDecimal("11.00"))
+        );
+    }
+
+    private static Stream<Arguments> crossCurrencyFailureCases() {
+        return Stream.of(
+                Arguments.of(SupportedCurrency.SEK, SupportedCurrency.GBP,
+                        new BigDecimal("112.00"), new BigDecimal("3.00"), new BigDecimal("112.01")),
+                Arguments.of(SupportedCurrency.SEK, SupportedCurrency.USD,
+                        new BigDecimal("112.00"), new BigDecimal("3.00"), new BigDecimal("112.01")),
+                Arguments.of(SupportedCurrency.USD, SupportedCurrency.GBP,
+                        new BigDecimal("11.00"), new BigDecimal("3.00"), new BigDecimal("11.01")),
+                Arguments.of(SupportedCurrency.USD, SupportedCurrency.SEK,
+                        new BigDecimal("11.00"), new BigDecimal("3.00"), new BigDecimal("11.01")),
+                Arguments.of(SupportedCurrency.GBP, SupportedCurrency.SEK,
+                        new BigDecimal("8.60"), new BigDecimal("3.00"), new BigDecimal("8.61")),
+                Arguments.of(SupportedCurrency.GBP, SupportedCurrency.USD,
+                        new BigDecimal("8.60"), new BigDecimal("3.00"), new BigDecimal("8.61"))
+        );
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -67,6 +115,8 @@ class AccountControllerIntegrationTest {
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
     }
 
+    // ── auth tests ─────────────────────────────────────────────────────────────
+
     private Long createFreshAccount() throws Exception {
         MvcResult result = mockMvc.perform(post(BASE_URL)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
@@ -83,8 +133,6 @@ class AccountControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(new MoneyRequest(amount, currency))))
                 .andExpect(status().isOk());
     }
-
-    // ── auth tests ─────────────────────────────────────────────────────────────
 
     @Test
     void login_validCredentials_returnsToken() throws Exception {
@@ -104,6 +152,8 @@ class AccountControllerIntegrationTest {
                 .andExpect(jsonPath("$.detail").value("Invalid username or password."));
     }
 
+    // ── account owner tests ────────────────────────────────────────────────────
+
     @Test
     void request_withoutToken_returns401() throws Exception {
         mockMvc.perform(get(BASE_URL))
@@ -118,8 +168,6 @@ class AccountControllerIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").isString());
     }
-
-    // ── account owner tests ────────────────────────────────────────────────────
 
     @Test
     void createAccount() throws Exception {
@@ -237,7 +285,54 @@ class AccountControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(
                                 new ExchangeRequest(new BigDecimal("50.00"), SupportedCurrency.EUR, SupportedCurrency.EUR))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.detail").value(containsString("EUR")));
+                .andExpect(jsonPath("$.detail").value("fromCurrency and toCurrency must differ"));
+    }
+
+    @Test
+    void exchange_failsWhenAmountHasTooManyDecimals() throws Exception {
+        deposit(accountId, new BigDecimal("10.00"), SupportedCurrency.EUR);
+
+        mockMvc.perform(post(BASE_URL + "/" + accountId + "/exchange")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ExchangeRequest(new BigDecimal("1.001"), SupportedCurrency.EUR, SupportedCurrency.USD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("at most 2 decimal places")));
+    }
+
+    @Test
+    void exchange_failsWhenCreditedTargetWouldBeZero() throws Exception {
+        deposit(accountId, new BigDecimal("1.00"), SupportedCurrency.EUR);
+
+        mockMvc.perform(post(BASE_URL + "/" + accountId + "/exchange")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ExchangeRequest(new BigDecimal("0.01"), SupportedCurrency.EUR, SupportedCurrency.GBP))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Exchange amount is too small to produce a payable target amount"));
+    }
+
+    @Test
+    void exchange_failureAfterDebit_rollsBackSourceAndTargetBalances() throws Exception {
+        deposit(accountId, new BigDecimal("100.00"), SupportedCurrency.EUR);
+        willThrow(new RuntimeException("boom")).given(exchangeRateService)
+                .convert(new BigDecimal("50.00"), SupportedCurrency.EUR, SupportedCurrency.USD);
+
+        mockMvc.perform(post(BASE_URL + "/" + accountId + "/exchange")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ExchangeRequest(new BigDecimal("50.00"), SupportedCurrency.EUR, SupportedCurrency.USD))))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred."));
+
+        mockMvc.perform(get(BASE_URL + "/" + accountId + "/balances")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balances.EUR").value(100.00))
+                .andExpect(jsonPath("$.balances.USD").value(0.00));
     }
 
     @Test
@@ -291,6 +386,8 @@ class AccountControllerIntegrationTest {
                 .andExpect(jsonPath("$.balances.EUR").value(100.00));
     }
 
+    // ── bad-input / protocol error tests ──────────────────────────────────────
+
     @Test
     void idempotency_withdrawReturnsSameResponseOnReplay() throws Exception {
         willDoNothing().given(externalLoggingClient).logWithdrawal();
@@ -340,8 +437,6 @@ class AccountControllerIntegrationTest {
                 .andExpect(jsonPath("$.balances.USD").value(55.00));
     }
 
-    // ── bad-input / protocol error tests ──────────────────────────────────────
-
     @Test
     void malformedJson_returnsBadRequest() throws Exception {
         mockMvc.perform(post(BASE_URL + "/" + accountId + "/deposit")
@@ -371,6 +466,8 @@ class AccountControllerIntegrationTest {
                 .andExpect(jsonPath("$.detail").value(containsString("not-a-number")));
     }
 
+    // ── admin tests ────────────────────────────────────────────────────────────
+
     @Test
     void wrongHttpMethod_returnsMethodNotAllowed() throws Exception {
         mockMvc.perform(delete(BASE_URL)
@@ -385,8 +482,6 @@ class AccountControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(new MoneyRequest(new BigDecimal("100.00"), SupportedCurrency.EUR))))
                 .andExpect(status().isUnsupportedMediaType());
     }
-
-    // ── admin tests ────────────────────────────────────────────────────────────
 
     @Test
     void adminEndpoint_withAdminRole_returnsAllAccountsGroupedByUser() throws Exception {
@@ -456,6 +551,8 @@ class AccountControllerIntegrationTest {
                 .andExpect(jsonPath("$.balances.USD").value(55.00));
     }
 
+    // ── role-separation tests ──────────────────────────────────────────────────
+
     @Test
     void adminEndpoint_withUserRole_returns403() throws Exception {
         mockMvc.perform(get(ADMIN_URL)
@@ -470,8 +567,6 @@ class AccountControllerIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").isString());
     }
-
-    // ── role-separation tests ──────────────────────────────────────────────────
 
     @Test
     void accountEndpoint_withAdminRole_returns403() throws Exception {
@@ -508,5 +603,53 @@ class AccountControllerIntegrationTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.detail").value("Access denied."));
     }
-}
 
+    @ParameterizedTest
+    @MethodSource("crossCurrencySuccessCases")
+    void exchange_crossCurrencyViaEurBase_updatesBalances(
+            SupportedCurrency fromCurrency,
+            SupportedCurrency toCurrency,
+            BigDecimal initialSource,
+            BigDecimal exchangeAmount,
+            BigDecimal expectedSource,
+            BigDecimal expectedTarget
+    ) throws Exception {
+        deposit(accountId, initialSource, fromCurrency);
+
+        mockMvc.perform(post(BASE_URL + "/" + accountId + "/exchange")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ExchangeRequest(exchangeAmount, fromCurrency, toCurrency))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balances." + fromCurrency).value(expectedSource.doubleValue()))
+                .andExpect(jsonPath("$.balances." + toCurrency).value(expectedTarget.doubleValue()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("crossCurrencyFailureCases")
+    void exchange_crossCurrencyFailure_keepsBalancesUnchanged(
+            SupportedCurrency fromCurrency,
+            SupportedCurrency toCurrency,
+            BigDecimal initialSource,
+            BigDecimal initialTarget,
+            BigDecimal attemptedAmount
+    ) throws Exception {
+        deposit(accountId, initialSource, fromCurrency);
+        deposit(accountId, initialTarget, toCurrency);
+
+        mockMvc.perform(post(BASE_URL + "/" + accountId + "/exchange")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new ExchangeRequest(attemptedAmount, fromCurrency, toCurrency))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("Insufficient funds")));
+
+        mockMvc.perform(get(BASE_URL + "/" + accountId + "/balances")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balances." + fromCurrency).value(initialSource.doubleValue()))
+                .andExpect(jsonPath("$.balances." + toCurrency).value(initialTarget.doubleValue()));
+    }
+}

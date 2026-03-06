@@ -79,25 +79,51 @@ class ExchangeRateServiceTest {
 
     @Test
     void convert_gbpToUsd_pivotsThroughEur() {
-        // given  — 100 GBP → EUR: 100/0.86 ≈ 116.279... → USD: *1.10 ≈ 127.91
+        // given  — 100 GBP -> EUR: 100/0.86 ~= 116.279... -> USD: *1.10 ~= 127.906...
         BigDecimal amount = new BigDecimal("100.00");
 
         // when
         BigDecimal result = exchangeRateService.convert(amount, SupportedCurrency.GBP, SupportedCurrency.USD);
 
         // then
-        then(result).isEqualByComparingTo("127.91");
+        then(result).isEqualByComparingTo("127.90");
     }
 
     @Test
-    void convert_smallAmount_roundsHalfUp() {
+    void convert_smallAmount_canRoundToZeroAfterFinalDownRounding() {
         // given
         BigDecimal amount = new BigDecimal("0.01");
 
         // when
-        BigDecimal result = exchangeRateService.convert(amount, SupportedCurrency.EUR, SupportedCurrency.USD);
+        BigDecimal result = exchangeRateService.convert(amount, SupportedCurrency.EUR, SupportedCurrency.GBP);
 
         // then
-        then(result).isEqualByComparingTo("0.01");
+        then(result).isEqualByComparingTo("0.00");
     }
+
+    @Test
+    void convert_finalRounding_isDownNotHalfUp() {
+        // given 0.03 EUR -> GBP = 0.0258, DOWN to 0.02 (HALF_UP would be 0.03)
+        BigDecimal amount = new BigDecimal("0.03");
+
+        // when
+        BigDecimal result = exchangeRateService.convert(amount, SupportedCurrency.EUR, SupportedCurrency.GBP);
+
+        // then
+        then(result).isEqualByComparingTo("0.02");
+    }
+
+    @Test
+    void convert_smallAmountSekToGbp_canRoundToZeroAfterFinalDownRounding() {
+        // given
+        BigDecimal amount = new BigDecimal("0.01");
+
+        // when
+        BigDecimal result = exchangeRateService.convert(amount, SupportedCurrency.SEK, SupportedCurrency.GBP);
+
+        // then
+        then(result).isEqualByComparingTo("0.00");
+
+    }
+
 }
