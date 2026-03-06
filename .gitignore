@@ -1,16 +1,57 @@
-# Compiled class file
+# === OS =====================================================================
+# macOS
+.DS_Store
+
+# === Build / Dependency caches ==============================================
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Keep project-level generated build folders if they are inside src
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Maven (safe to include as fallback)
+target/
+
+# === IDEs / Editors ========================================================
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# VS Code
+.vscode/
+
+# === Java / Archives / Packages ============================================
+# Compiled class files
 *.class
 
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
+# Package files
 *.jar
 *.war
 *.nar
@@ -19,6 +60,36 @@
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# JVM crash logs
 hs_err_pid*
 replay_pid*
+
+# === Logs, temp and runtime artifacts ======================================
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# Application metadata
+.replay/
+
+# === Secrets / Keystores / Environment =====================================
+# Common environment and secret files - adjust if you track env files intentionally
+.env
+*.env
+*.jks
+*.p12
+*.keystore
+
+# === Other / Misc ==========================================================
+# BlueJ
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Keep editor/project-specific exclusions you used previously
+.kotlin
+
+# End of .gitignore
