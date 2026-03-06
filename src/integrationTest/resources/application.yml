@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:test-bankdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: PUBLIC
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+h2:
+  tcp:
+    enabled: false
+
+external:
+  logging:
+    url: https://httpstat.us/200
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
