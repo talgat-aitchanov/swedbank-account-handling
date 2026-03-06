@@ -47,7 +47,9 @@ public class AccountBalance {
         this.amount = amount;
     }
 
-    /** The only field that changes after creation. */
+    /**
+     * The only field that changes after creation.
+     */
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
     }

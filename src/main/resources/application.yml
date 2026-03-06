@@ -14,6 +14,7 @@ spring:
     open-in-view: false
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+    contexts: local
 
 external:
   logging:
@@ -29,3 +30,7 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+app:
+  jwt:
+    secret: "3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b"
+    expiration-ms: 3600000

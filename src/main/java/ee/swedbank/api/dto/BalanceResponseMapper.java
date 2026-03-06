@@ -10,8 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Maps a domain {@link Account} to a {@link BalanceResponse}.
- * All supported currencies are always present in the response; missing balances default to 0.00.
+ * Maps a domain {@link Account} to response DTOs.
+ * All supported currencies are always present; missing balances default to 0.00.
  */
 @Component
 public class BalanceResponseMapper {
@@ -19,13 +19,23 @@ public class BalanceResponseMapper {
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
     public BalanceResponse toResponse(Account account) {
+        return new BalanceResponse(account.getId(), buildBalanceMap(account));
+    }
+
+    public AccountWithBalancesResponse toDetailedResponse(Account account) {
+        return new AccountWithBalancesResponse(
+                account.getId(),
+                account.getOwnerUsername(),
+                buildBalanceMap(account));
+    }
+
+    private Map<SupportedCurrency, BigDecimal> buildBalanceMap(Account account) {
         Map<SupportedCurrency, BigDecimal> map = new LinkedHashMap<>();
         for (SupportedCurrency c : SupportedCurrency.values()) {
             map.put(c, ZERO);
         }
         account.getBalances().forEach(b ->
                 map.put(b.getCurrency(), b.getAmount().setScale(2, RoundingMode.HALF_UP)));
-        return new BalanceResponse(account.getId(), map);
+        return map;
     }
 }
-

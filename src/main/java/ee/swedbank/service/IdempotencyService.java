@@ -20,10 +20,14 @@ public class IdempotencyService {
 
     /**
      * If a cached response exists for the key+type, returns it.
-     * Otherwise executes {@code operation}, persists the result, and returns it.
-     * When {@code idempotencyKey} is null or blank the operation is always executed.
+     * Otherwise executes {@code operation}, persists the result with audit info, and returns it.
+     * When {@code idempotencyKey} is null or blank the operation is always executed (no caching).
+     *
+     * @param initiatedBy username of the actor who triggered the operation
+     * @param note        optional admin comment; ignored for user-initiated operations
      */
     public BalanceResponse executeIdempotent(String idempotencyKey, OperationType operationType,
+                                             String initiatedBy, String note,
                                              Supplier<BalanceResponse> operation) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             return operation.get();
@@ -31,7 +35,7 @@ public class IdempotencyService {
         return findExisting(idempotencyKey, operationType)
                 .orElseGet(() -> {
                     BalanceResponse response = operation.get();
-                    save(idempotencyKey, operationType, response);
+                    save(idempotencyKey, operationType, response, initiatedBy, note);
                     return response;
                 });
     }
@@ -50,10 +54,12 @@ public class IdempotencyService {
                 });
     }
 
-    private void save(String idempotencyKey, OperationType operationType, BalanceResponse response) {
+    private void save(String idempotencyKey, OperationType operationType,
+                      BalanceResponse response, String initiatedBy, String note) {
         try {
             String json = objectMapper.writeValueAsString(response);
-            repository.save(new IdempotencyRecord(idempotencyKey, operationType.name(), json));
+            repository.save(new IdempotencyRecord(
+                    idempotencyKey, operationType.name(), json, initiatedBy, note));
         } catch (JsonProcessingException e) {
             throw new IdempotencySerializationException(
                     "Failed to serialize response for idempotency key '" + idempotencyKey + "'", e);

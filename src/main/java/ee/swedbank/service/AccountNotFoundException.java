@@ -10,4 +10,12 @@ public class AccountNotFoundException extends RuntimeException {
         super("Account " + accountId + " was not found.");
         this.accountId = accountId;
     }
+
+    /**
+     * Used when lookup is by username rather than ID.
+     */
+    public AccountNotFoundException(String message) {
+        super(message);
+        this.accountId = null;
+    }
 }

@@ -1,6 +1,5 @@
 package ee.swedbank.service;
 
-import ee.swedbank.api.dto.AccountListResponse;
 import ee.swedbank.api.dto.BalanceResponse;
 import ee.swedbank.api.dto.BalanceResponseMapper;
 import ee.swedbank.domain.Account;
@@ -25,20 +24,22 @@ import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.BDDAssertions.thenThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.never;
-import static org.mockito.BDDMockito.willDoNothing;
-import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.BDDMockito.*;
 import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AccountServiceTest {
 
-    @Mock private AccountRepository accountRepository;
-    @Mock private ExchangeRateService exchangeRateService;
-    @Mock private ExternalLoggingClient externalLoggingClient;
-    @Mock private IdempotencyService idempotencyService;
-    @Mock private BalanceResponseMapper balanceResponseMapper;
+    @Mock
+    private AccountRepository accountRepository;
+    @Mock
+    private ExchangeRateService exchangeRateService;
+    @Mock
+    private ExternalLoggingClient externalLoggingClient;
+    @Mock
+    private IdempotencyService idempotencyService;
+    @Mock
+    private BalanceResponseMapper balanceResponseMapper;
 
     @InjectMocks
     private AccountService accountService;
@@ -50,36 +51,12 @@ class AccountServiceTest {
         account = new Account(1L);
     }
 
-    /** Makes executeIdempotent a transparent pass-through for the current test. */
+    /**
+     * Makes executeIdempotent a transparent pass-through for the current test.
+     */
     private void usePassThroughIdempotency() {
-        lenient().when(idempotencyService.executeIdempotent(any(), any(), any()))
-                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(2)).get());
-    }
-
-    // ── getAllAccounts ─────────────────────────────────────────────────────────
-
-    @Test
-    void getAllAccounts_noAccountsExist_returnsEmptyList() {
-        // given
-        given(accountRepository.findAllIds()).willReturn(List.of());
-
-        // when
-        AccountListResponse response = accountService.getAllAccounts();
-
-        // then
-        then(response.accountIds()).isEmpty();
-    }
-
-    @Test
-    void getAllAccounts_accountsExist_returnsAllIds() {
-        // given
-        given(accountRepository.findAllIds()).willReturn(List.of(1L, 2L, 3L));
-
-        // when
-        AccountListResponse response = accountService.getAllAccounts();
-
-        // then
-        then(response.accountIds()).containsExactly(1L, 2L, 3L);
+        lenient().when(idempotencyService.executeIdempotent(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(4)).get());
     }
 
     // ── createAccount ─────────────────────────────────────────────────────────
@@ -90,11 +67,35 @@ class AccountServiceTest {
         given(accountRepository.save(any(Account.class))).willReturn(new Account(42L));
 
         // when
-        Long id = accountService.createAccount();
+        Long id = accountService.createAccount("testuser");
 
         // then
         then(id).isEqualTo(42L);
         BDDMockito.then(accountRepository).should().save(any(Account.class));
+    }
+
+    // ── getAccountsWithBalances ───────────────────────────────────────────────
+
+    @Test
+    void getAccountsWithBalances_noAccounts_returnsEmptyList() {
+        given(accountRepository.findAllWithBalancesByOwnerUsername("user")).willReturn(List.of());
+        then(accountService.getAccountsWithBalances("user")).isEmpty();
+    }
+
+    @Test
+    void getAccountsWithBalances_returnsAllAccountsForUser() {
+        Account a1 = new Account(1L);
+        Account a2 = new Account(2L);
+        given(accountRepository.findAllWithBalancesByOwnerUsername("user")).willReturn(List.of(a1, a2));
+        given(balanceResponseMapper.toDetailedResponse(any())).willAnswer(inv ->
+                new ee.swedbank.api.dto.AccountWithBalancesResponse(
+                        ((Account) inv.getArgument(0)).getId(), "user", Map.of()));
+
+        var result = accountService.getAccountsWithBalances("user");
+
+        then(result).hasSize(2);
+        then(result.get(0).accountId()).isEqualTo(1L);
+        then(result.get(1).accountId()).isEqualTo(2L);
     }
 
     // ── getBalance ────────────────────────────────────────────────────────────
@@ -135,7 +136,8 @@ class AccountServiceTest {
         given(balanceResponseMapper.toResponse(account)).willReturn(expected);
 
         // when
-        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"), SupportedCurrency.EUR, null);
+        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"),
+                SupportedCurrency.EUR, null, "user", null);
 
         // then
         then(response).isSameAs(expected);
@@ -154,7 +156,8 @@ class AccountServiceTest {
                         account.getBalances().get(0).getAmount())));
 
         // when
-        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"), SupportedCurrency.EUR, null);
+        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"),
+                SupportedCurrency.EUR, null, "user", null);
 
         // then
         then(response.balances().get(SupportedCurrency.EUR)).isEqualByComparingTo("150.00");
@@ -164,11 +167,12 @@ class AccountServiceTest {
     void addMoney_duplicateIdempotencyKey_returnsCachedResponseWithoutSideEffect() {
         // given — executeIdempotent returns cached value without calling the supplier
         BalanceResponse cached = new BalanceResponse(1L, Map.of(SupportedCurrency.EUR, new BigDecimal("50.00")));
-        given(idempotencyService.executeIdempotent(eq("key1"), eq(OperationType.DEPOSIT), any()))
+        given(idempotencyService.executeIdempotent(eq("key1"), eq(OperationType.DEPOSIT), any(), any(), any()))
                 .willReturn(cached);
 
         // when
-        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"), SupportedCurrency.EUR, "key1");
+        BalanceResponse response = accountService.addMoney(1L, new BigDecimal("50.00"),
+                SupportedCurrency.EUR, "key1", "user", null);
 
         // then
         then(response).isSameAs(cached);
@@ -190,7 +194,8 @@ class AccountServiceTest {
         willDoNothing().given(externalLoggingClient).logWithdrawal();
 
         // when
-        BalanceResponse response = accountService.withdrawMoney(1L, new BigDecimal("30.00"), SupportedCurrency.EUR, null);
+        BalanceResponse response = accountService.withdrawMoney(1L, new BigDecimal("30.00"),
+                SupportedCurrency.EUR, null, "user", null);
 
         // then
         then(response.balances().get(SupportedCurrency.EUR)).isEqualByComparingTo("70.00");
@@ -205,7 +210,8 @@ class AccountServiceTest {
         given(accountRepository.findWithBalancesById(1L)).willReturn(Optional.of(account));
 
         // when / then
-        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("20.00"), SupportedCurrency.EUR, null))
+        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("20.00"),
+                SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(InsufficientFundsException.class)
                 .hasMessageContaining("1")
                 .hasMessageContaining("EUR")
@@ -221,7 +227,8 @@ class AccountServiceTest {
         given(accountRepository.findWithBalancesById(1L)).willReturn(Optional.of(account));
 
         // when / then
-        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("10.00"), SupportedCurrency.USD, null))
+        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("10.00"),
+                SupportedCurrency.USD, null, "user", null))
                 .isInstanceOf(UnsupportedCurrencyException.class)
                 .hasMessageContaining("1")
                 .hasMessageContaining("USD");
@@ -237,7 +244,8 @@ class AccountServiceTest {
         willThrow(new ExternalLoggingFailedException("fail")).given(externalLoggingClient).logWithdrawal();
 
         // when / then
-        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("10.00"), SupportedCurrency.EUR, null))
+        thenThrownBy(() -> accountService.withdrawMoney(1L, new BigDecimal("10.00"),
+                SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(ExternalLoggingFailedException.class);
     }
 
@@ -265,7 +273,7 @@ class AccountServiceTest {
 
         // when
         BalanceResponse response = accountService.exchange(1L, new BigDecimal("50.00"),
-                SupportedCurrency.EUR, SupportedCurrency.USD, null);
+                SupportedCurrency.EUR, SupportedCurrency.USD, null, "user", null);
 
         // then
         then(response.balances().get(SupportedCurrency.EUR)).isEqualByComparingTo("50.00");
@@ -281,7 +289,7 @@ class AccountServiceTest {
 
         // when / then
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
-                        SupportedCurrency.EUR, SupportedCurrency.USD, null))
+                SupportedCurrency.EUR, SupportedCurrency.USD, null, "user", null))
                 .isInstanceOf(InsufficientFundsException.class)
                 .hasMessageContaining("1")
                 .hasMessageContaining("EUR")
@@ -297,7 +305,7 @@ class AccountServiceTest {
 
         // when / then
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
-                        SupportedCurrency.USD, SupportedCurrency.EUR, null))
+                SupportedCurrency.USD, SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(UnsupportedCurrencyException.class)
                 .hasMessageContaining("1")
                 .hasMessageContaining("USD");
@@ -305,11 +313,9 @@ class AccountServiceTest {
 
     @Test
     void exchange_sameCurrency_throwsInvalidRequestException() {
-        // given — check fires before idempotency/repo lookup; no stubs needed
-
-        // when / then
+        // same-currency check fires before idempotency/repo lookup; no stubs needed
         thenThrownBy(() -> accountService.exchange(1L, new BigDecimal("50.00"),
-                        SupportedCurrency.EUR, SupportedCurrency.EUR, null))
+                SupportedCurrency.EUR, SupportedCurrency.EUR, null, "user", null))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("1")
                 .hasMessageContaining("EUR");
@@ -321,12 +327,12 @@ class AccountServiceTest {
         BalanceResponse cached = new BalanceResponse(1L, Map.of(
                 SupportedCurrency.EUR, new BigDecimal("50.00"),
                 SupportedCurrency.USD, new BigDecimal("55.00")));
-        given(idempotencyService.executeIdempotent(eq("ex-key"), eq(OperationType.EXCHANGE), any()))
+        given(idempotencyService.executeIdempotent(eq("ex-key"), eq(OperationType.EXCHANGE), any(), any(), any()))
                 .willReturn(cached);
 
         // when
         BalanceResponse response = accountService.exchange(1L, new BigDecimal("50.00"),
-                SupportedCurrency.EUR, SupportedCurrency.USD, "ex-key");
+                SupportedCurrency.EUR, SupportedCurrency.USD, "ex-key", "user", null);
 
         // then
         then(response).isSameAs(cached);

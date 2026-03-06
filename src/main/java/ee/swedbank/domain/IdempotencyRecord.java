@@ -30,13 +30,28 @@ public class IdempotencyRecord {
     @Column(name = "response_body", nullable = false)
     private String responseBody;
 
+    /**
+     * Username of the actor who initiated the operation (USER or ADMIN).
+     */
+    @Column(name = "initiated_by", nullable = false, length = 100)
+    private String initiatedBy;
+
+    /**
+     * Optional free-text note added by an admin (e.g. reason for manual adjustment).
+     */
+    @Column(name = "note", length = 500)
+    private String note;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    public IdempotencyRecord(String idempotencyKey, String operationType, String responseBody) {
+    public IdempotencyRecord(String idempotencyKey, String operationType,
+                             String responseBody, String initiatedBy, String note) {
         this.idempotencyKey = idempotencyKey;
         this.operationType = operationType;
         this.responseBody = responseBody;
+        this.initiatedBy = initiatedBy;
+        this.note = note;
     }
 }

@@ -2,7 +2,8 @@
 
 --changeset swedbank:002-create-idempotency-records
 
-CREATE TABLE idempotency_records (
+CREATE TABLE idempotency_records
+(
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     idempotency_key VARCHAR(255) NOT NULL,
     operation_type  VARCHAR(50)  NOT NULL,

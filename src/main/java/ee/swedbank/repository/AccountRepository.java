@@ -15,7 +15,16 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     @EntityGraph(attributePaths = "balances")
     Optional<Account> findWithBalancesById(Long id);
 
+    @EntityGraph(attributePaths = "balances")
+    List<Account> findAllWithBalancesByOwnerUsername(String ownerUsername);
+
+    @EntityGraph(attributePaths = "balances")
+    @Query("SELECT a FROM Account a ORDER BY a.ownerUsername ASC, a.id ASC")
+    List<Account> findAllWithBalances();
+
+    @Query("SELECT a.id FROM Account a WHERE a.ownerUsername = :ownerUsername ORDER BY a.id ASC")
+    List<Long> findIdsByOwnerUsername(String ownerUsername);
+
     @Query("SELECT a.id FROM Account a ORDER BY a.id ASC")
     List<Long> findAllIds();
 }
-
